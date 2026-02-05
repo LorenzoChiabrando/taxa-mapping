@@ -1,0 +1,11 @@
+services:
+  minebugs:
+    build: .
+    image: mandringo02/minebugs-taxa-mapping-demo:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./data:/app/data
+    restart: unless-stopped
