@@ -1,7 +1,10 @@
+# Python venv
+source/venv/
+
+# Python cache
 __pycache__/
-*.pyc
-.env
-.venv/
-output/
-!data/.gitkeep
+*.py[cod]
+
+# Local Runs
+output/*
 !output/.gitkeep
