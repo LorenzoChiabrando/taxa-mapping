@@ -5,3 +5,5 @@ pydantic>=2.6
 pydantic-settings>=2.1
 requests>=2.28
 weasyprint
+plotly>=5.20
+kaleido==0.2.1

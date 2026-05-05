@@ -211,9 +211,15 @@ def _render_jaccard_candidates(rec: dict) -> str:
         return '<span class="na-note">—</span>'
 
     if n > _GRID_MAX:
-        return (f'<span class="cand-overflow">'
-                f'No specific match &mdash; {n} candidates tied at j_score={score:.3f}'
-                f'</span>')
+        rows = [f"<tr><th>Model &nbsp;<span style='font-weight:normal;color:#888'>"
+                f"(all at j_score={score:.3f})</span></th></tr>"]
+        if preferred:
+            rows.append(f'<tr class="preferred"><td><code>{preferred}</code> &#9654;</td></tr>')
+        table = f'<table class="ncbi-table">{"".join(rows)}</table>'
+        note  = (f'<span class="cand-overflow">'
+                 f'{n} candidates total &mdash; only the selected model is shown'
+                 f'</span>')
+        return f'{table}<br>{note}'
 
     if not cands:
         return f'<span class="cand-overflow">{n} candidates</span>'
@@ -238,9 +244,34 @@ def _render_ncbi_candidates(rec: dict) -> str:
         return '<span class="na-note">—</span>'
 
     if n > _GRID_MAX:
-        return (f'<span class="cand-overflow">'
-                f'{n} candidates — list omitted (&gt;{_GRID_MAX})'
-                f'</span>')
+        rows = [
+            '<colgroup>'
+            '<col class="col-model"><col class="col-score"><col class="col-reason">'
+            '</colgroup>'
+            "<tr><th>Model</th><th>Score</th><th>Reason</th></tr>"
+        ]
+        if cands:
+            c = cands[0]
+            rows.append(
+                f'<tr class="preferred">'
+                f"<td><code>{c['model']}</code> &#9654;</td>"
+                f"<td class='num'>{c['score']}</td>"
+                f"<td>{c['reason'] or '—'}</td>"
+                f"</tr>"
+            )
+        elif preferred:
+            rows.append(
+                f'<tr class="preferred">'
+                f"<td><code>{preferred}</code> &#9654;</td>"
+                f"<td class='num'>—</td>"
+                f"<td>—</td>"
+                f"</tr>"
+            )
+        table = f'<table class="ncbi-table">{"".join(rows)}</table>'
+        note  = (f'<span class="cand-overflow">'
+                 f'{n} candidates total &mdash; only the selected model is shown'
+                 f'</span>')
+        return f'{table}<br>{note}'
 
     if not cands:
         return f'<span class="cand-overflow">{n} candidates</span>'
@@ -387,6 +418,12 @@ def _load(run_dir: Path) -> tuple[list[dict], dict, dict, list[dict]]:
         if r_raw is not None:
             ncbi_cands = _parse_ncbi_candidates(r_raw.get("ranked_candidates"))
             gem = _s(r_raw.get("suggested_gem"))
+            _gem = gem if gem not in ("no_suggestion", "") else ""
+            if len(ncbi_cands) <= _GRID_MAX:
+                _ncbi_cands_out = ncbi_cands
+            else:
+                _pref = next((c for c in ncbi_cands if c["model"] == _gem), None) if _gem else None
+                _ncbi_cands_out = [_pref] if _pref else []
             r_rec = {
                 "canonical":         _s(r_raw.get("canonical")),
                 "rank":              _s(r_raw.get("rank")),
@@ -398,8 +435,8 @@ def _load(run_dir: Path) -> tuple[list[dict], dict, dict, list[dict]]:
                 "rationale_scoring": _s(r_raw.get("rationale_scoring")),
                 "rationale_final":   _s(r_raw.get("rationale_final")),
                 "n_candidates":      len(ncbi_cands),
-                "candidates":        ncbi_cands if len(ncbi_cands) <= _GRID_MAX else [],
-                "preferred":         gem if gem not in ("no_suggestion", "") else "",
+                "candidates":        _ncbi_cands_out,
+                "preferred":         _gem,
             }
 
         f_raw  = report_idx.get(original, {})
@@ -427,7 +464,7 @@ def _load(run_dir: Path) -> tuple[list[dict], dict, dict, list[dict]]:
 _PANEL_TITLES: dict[str, str] = {
     "panel_A_landscape": "Panel A — Mapping Quality Landscape",
     "panel_B_heatmap":   "Panel B — Score × Tie-Bin Frequency by Tier",
-    "panel_C_sankey":    "Panel C — Mapping Flow (Input type → Jaccard tier → Final band)",
+    "panel_C_sankey":    "Panel C — Mapping Flow (All Taxa → Jaccard tier → Final band)",
 }
 
 

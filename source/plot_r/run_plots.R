@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# run_plots.R — generate Panel A and Panel B PNGs for a taxa-mapping run.
+# run_plots.R — generate plot PNGs for a taxa-mapping run.
 # Called by run.py when --plots is set.
 # Usage: Rscript plot_r/run_plots.R <run_dir>
 
@@ -40,49 +40,44 @@ message("Loaded ", nrow(df), " rows from ", mapping_csv)
 plots_dir <- file.path(run_dir, "plots")
 dir.create(plots_dir, recursive = TRUE, showWarnings = FALSE)
 
-# ── Panel A — Mapping quality landscape ───────────────────────────────────────
-tryCatch({
-  pA <- plot_mapping_landscape(df)
-  ggsave(
-    filename = file.path(plots_dir, "panel_A_landscape.png"),
-    plot     = pA,
-    width    = 8, height = 6, dpi = 150, bg = "white"
-  )
-  message("Panel A saved: panel_A_landscape.png")
-}, error = function(e) {
-  message("Panel A FAILED: ", conditionMessage(e))
-})
+# ── Panel A — Mapping quality landscape ──────────────────────────── (disabled)
+# tryCatch({
+#   pA <- plot_mapping_landscape(df)
+#   ggsave(
+#     filename = file.path(plots_dir, "panel_A_landscape.png"),
+#     plot     = pA,
+#     width    = 8, height = 6, dpi = 150, bg = "white"
+#   )
+#   message("Panel A saved: panel_A_landscape.png")
+# }, error = function(e) {
+#   message("Panel A FAILED: ", conditionMessage(e))
+# })
 
-# ── Panel B — Score × Tie-Bin heatmap ─────────────────────────────────────────
-tryCatch({
-  pB <- plot_score_tie_heatmap(df)
-  ggsave(
-    filename = file.path(plots_dir, "panel_B_heatmap.png"),
-    plot     = pB,
-    width    = 7, height = 4.5, dpi = 150, bg = "white"
-  )
-  message("Panel B saved: panel_B_heatmap.png")
-}, error = function(e) {
-  message("Panel B FAILED: ", conditionMessage(e))
-})
+# ── Panel B — Score × Tie-Bin heatmap ────────────────────────────── (disabled)
+# tryCatch({
+#   pB <- plot_score_tie_heatmap(df)
+#   ggsave(
+#     filename = file.path(plots_dir, "panel_B_heatmap.png"),
+#     plot     = pB,
+#     width    = 7, height = 4.5, dpi = 150, bg = "white"
+#   )
+#   message("Panel B saved: panel_B_heatmap.png")
+# }, error = function(e) {
+#   message("Panel B FAILED: ", conditionMessage(e))
+# })
 
-# ── Panel C — Alluvial flow (optional, requires ggalluvial) ───────────────────
-if (requireNamespace("ggalluvial", quietly = TRUE)) {
+# ── Panel C — Sankey flow (networkD3 → PNG via webshot2) ──────────────────────
+if (requireNamespace("networkD3", quietly = TRUE) &&
+    requireNamespace("webshot2",  quietly = TRUE)) {
   tryCatch({
-    pC <- plot_mapping_sankey(df)
-    if (!is.null(pC)) {
-      ggsave(
-        filename = file.path(plots_dir, "panel_C_sankey.png"),
-        plot     = pC,
-        width    = 7, height = 5, dpi = 150, bg = "white"
-      )
-      message("Panel C saved: panel_C_sankey.png")
-    }
+    out_png <- file.path(plots_dir, "panel_C_sankey.png")
+    result  <- plot_mapping_sankey(df, output_png = out_png)
+    if (!is.null(result)) message("Panel C saved: panel_C_sankey.png")
   }, error = function(e) {
     message("Panel C FAILED: ", conditionMessage(e))
   })
 } else {
-  message("Panel C skipped (ggalluvial not installed — run: install.packages('ggalluvial'))")
+  message("Panel C skipped — run: install.packages(c('networkD3', 'webshot2'))")
 }
 
 message("Plots directory: ", plots_dir)

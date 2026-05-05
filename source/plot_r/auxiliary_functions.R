@@ -36,18 +36,18 @@ safe_comparisons <- function(df, var = "relative_abundance_log", group = "Diet")
 # Coerce CSV-loaded mapping df to correct types.
 # Python writes booleans as "True"/"False"; numeric columns need explicit cast.
 coerce_mapping_types <- function(df) {
-  df %>%
-    mutate(
-      j_score        = as.numeric(j_score),
-      n_candidates   = as.integer(n_candidates),
-      top_score      = as.numeric(top_score),
-      n_top_ties     = as.integer(n_top_ties),
-      n_100s         = as.numeric(n_100s),
-      has_code_or_cc = as.integer(has_code_or_cc),
-      anchor_tokens  = as.integer(anchor_tokens),
-      has_gs         = tolower(has_gs)       == "true",
-      is_not_found   = tolower(is_not_found) == "true"
-    )
+  df <- df %>% mutate(
+    j_score      = as.numeric(j_score),
+    n_candidates = as.integer(n_candidates)
+  )
+  if ("has_gs"         %in% names(df)) df <- df %>% mutate(has_gs         = tolower(has_gs)         == "true")
+  if ("is_not_found"   %in% names(df)) df <- df %>% mutate(is_not_found   = tolower(is_not_found)   == "true")
+  if ("has_code_or_cc" %in% names(df)) df <- df %>% mutate(has_code_or_cc = as.integer(has_code_or_cc))
+  if ("anchor_tokens"  %in% names(df)) df <- df %>% mutate(anchor_tokens  = as.integer(anchor_tokens))
+  if ("top_score"      %in% names(df)) df <- df %>% mutate(top_score      = as.numeric(top_score))
+  if ("n_top_ties"     %in% names(df)) df <- df %>% mutate(n_top_ties     = as.integer(n_top_ties))
+  if ("n_100s"         %in% names(df)) df <- df %>% mutate(n_100s         = as.numeric(n_100s))
+  df
 }
 
 # Add input_type label column derived from taxon name characteristics.
@@ -183,6 +183,16 @@ plot_mapping_landscape <- function(df, title = "Mapping quality landscape") {
 plot_score_tie_heatmap <- function(df,
                                     title = "Score × Tie-Bin Frequency by Tier") {
   df <- coerce_mapping_types(df)
+
+  if (!all(c("is_not_found", "top_score", "n_top_ties", "final_band") %in% names(df))) {
+    return(
+      ggplot() +
+        annotate("text", x = 0.5, y = 0.5,
+                 label = "All taxa auto-accepted — no NCBI rescue data", size = 4.5, colour = "grey40") +
+        theme_void() + labs(title = title)
+    )
+  }
+
   rescued <- df %>% filter(!is_not_found)
 
   if (nrow(rescued) == 0) {
@@ -207,79 +217,145 @@ plot_score_tie_heatmap <- function(df,
       final_band = factor(final_band, levels = BAND_FINAL_ORDER)
     )
 
-  tiles <- rescued %>%
-    count(score_bin, tie_bin, final_band, .drop = FALSE) %>%
-    filter(!is.na(score_bin), !is.na(tie_bin))
+  tier_counts <- rescued %>% count(final_band, name = "tier_n")
 
-  ggplot(tiles, aes(x = score_bin, y = tie_bin, fill = final_band)) +
-    geom_tile(colour = "white", linewidth = 0.6) +
-    geom_text(aes(label = ifelse(n > 0, as.character(n), "")),
-              size = 3.8, colour = "white", fontface = "bold") +
+  tiles <- rescued %>%
+    count(final_band, score_bin, tie_bin) %>%
+    filter(!is.na(score_bin), !is.na(tie_bin), n > 0) %>%
+    left_join(tier_counts, by = "final_band") %>%
+    mutate(tier_label = forcats::fct_reorder(
+      paste0(final_band, "\n(n = ", tier_n, ")"),
+      as.integer(final_band)
+    ))
+
+  ggplot(tiles, aes(x = score_bin, y = tie_bin)) +
+    geom_tile(aes(fill = final_band), colour = "white", linewidth = 0.6) +
+    geom_text(aes(label = n), size = 3.8, colour = "white", fontface = "bold") +
     scale_fill_manual(
       values = BAND_FINAL_COLOURS,
       labels = BAND_FINAL_LABELS,
       name   = "Final tier",
       drop   = FALSE
     ) +
+    facet_wrap(~ tier_label, nrow = 1, scales = "free_x", drop = TRUE) +
     labs(x = "Rescue score", y = "Tie-bin (n top candidates)", title = title) +
     theme_bw(base_size = 9) +
     theme(
       panel.grid      = element_blank(),
       legend.position = "right",
       legend.text     = element_text(size = 7),
-      legend.key.size = unit(0.4, "cm")
+      legend.key.size = unit(0.4, "cm"),
+      strip.text      = element_text(face = "bold", size = 8),
+      strip.background = element_rect(fill = "grey95", color = NA)
     )
 }
 
-# ── 6.  Panel C: Alluvial / Sankey flow diagram ───────────────────────────────
+# ── 6.  Panel C: Sankey flow diagram (All Taxa → Jaccard tier → Final band) ───
+# Rendered via networkD3 (HTML/JS) and exported to PNG through webshot2.
+# Requires: install.packages(c("networkD3", "webshot2"))
+# webshot2 also needs a Chromium/Chrome browser available on the system.
 
-plot_mapping_sankey <- function(df,
-                                 title = "Mapping flow: label type → Jaccard tier → final band") {
-  if (!requireNamespace("ggalluvial", quietly = TRUE)) {
-    message("'ggalluvial' not installed — skipping Sankey panel. ",
-            "Run: install.packages('ggalluvial')")
+plot_mapping_sankey <- function(df, output_png,
+                                 title = "Mapping flow: All Taxa → Jaccard tier → final band") {
+  if (!requireNamespace("networkD3",  quietly = TRUE) ||
+      !requireNamespace("webshot2",   quietly = TRUE)) {
+    message("Packages networkD3 and webshot2 required — ",
+            "run: install.packages(c('networkD3', 'webshot2'))")
     return(invisible(NULL))
   }
 
+  if (!"final_band" %in% names(df)) df <- df %>% mutate(final_band = NA_character_)
+
   df <- coerce_mapping_types(df) %>%
-    classify_input_type() %>%
     mutate(
-      Jaccard = factor(bands,      levels = c("auto-accept", "grey-zone",
-                                              "flag",        "not-accept")),
-      Final   = factor(final_band, levels = BAND_FINAL_ORDER)
+      Jaccard  = factor(bands, levels = c("auto-accept", "grey-zone",
+                                          "flag", "not-accept")),
+      Final    = case_when(
+        bands == "auto-accept"                 ~ "green",
+        !is.na(final_band) & final_band != "" ~ as.character(final_band),
+        TRUE                                   ~ "black"
+      ),
+      Final    = factor(Final, levels = BAND_FINAL_ORDER),
+      all_taxa = "All Taxa"
     )
 
-  alluv <- df %>%
-    count(input_type, Jaccard, Final, name = "freq")
+  # Build edge list: All Taxa → Jaccard, Jaccard → Final
+  links_jac <- df %>%
+    dplyr::count(source = all_taxa,
+                 target = as.character(Jaccard), name = "value") %>%
+    dplyr::filter(!is.na(target))
 
-  all_col <- c(INPUT_TYPE_COLOURS, BAND_JACCARD_COLOURS, BAND_FINAL_COLOURS)
+  links_fin <- df %>%
+    dplyr::count(source = as.character(Jaccard),
+                 target = as.character(Final), name = "value") %>%
+    dplyr::filter(!is.na(source), !is.na(target))
 
-  ggplot(alluv,
-         aes(y = freq, axis1 = input_type, axis2 = Jaccard, axis3 = Final)) +
-    ggalluvial::geom_alluvium(
-      aes(fill = Final),
-      width    = 1/5, alpha = 0.65, knot.pos = 0.4
-    ) +
-    ggalluvial::geom_stratum(
-      fill = "grey25", colour = "white", width = 1/5, linewidth = 0.4
-    ) +
-    geom_text(
-      stat  = ggalluvial::StatStratum,
-      aes(label = after_stat(stratum)),
-      size  = 2.6, colour = "white", fontface = "bold"
-    ) +
-    scale_x_discrete(
-      limits = c("Input type", "Jaccard tier", "Final band"),
-      expand = c(0.08, 0.08)
-    ) +
-    scale_fill_manual(values = BAND_FINAL_COLOURS, guide = "none") +
-    labs(x = NULL, y = "Number of taxa", title = title) +
-    theme_minimal(base_size = 9) +
-    theme(
-      axis.text.x  = element_text(face = "bold", size = 9),
-      axis.text.y  = element_blank(),
-      panel.grid   = element_blank()
-    )
+  links <- dplyr::bind_rows(links_jac, links_fin)
+
+  # Node table — order determines D3's 0-based indices
+  node_names <- unique(c(links$source, links$target))
+  nodes      <- data.frame(name = node_names, stringsAsFactors = FALSE)
+  node_idx   <- setNames(seq_along(node_names) - 1L, node_names)
+
+  links$IDsource <- node_idx[links$source]
+  links$IDtarget <- node_idx[links$target]
+
+  # Per-node colours
+  palette <- c(
+    "All Taxa"     = "#5C9EAD",
+    "auto-accept"  = "#1B5E20",
+    "grey-zone"    = "#607D8B",
+    "flag"         = "#E64A19",
+    "not-accept"   = "#B71C1C",
+    "green"        = "#1B5E20",
+    "yellow_green" = "#8BC34A",
+    "yellow"       = "#F9A825",
+    "red"          = "#C62828",
+    "black"        = "#212121"
+  )
+  node_colours <- ifelse(nodes$name %in% names(palette),
+                         palette[nodes$name], "#90A4AE")
+
+  colour_scale <- networkD3::JS(paste0(
+    'd3.scaleOrdinal()',
+    '.domain([', paste0('"', nodes$name,   '"', collapse = ","), '])',
+    '.range([',  paste0('"', node_colours, '"', collapse = ","), '])'
+  ))
+
+  sn <- networkD3::sankeyNetwork(
+    Links       = links,
+    Nodes       = nodes,
+    Source      = "IDsource",
+    Target      = "IDtarget",
+    Value       = "value",
+    NodeID      = "name",
+    colourScale = colour_scale,
+    fontSize    = 13,
+    nodeWidth   = 24,
+    nodePadding = 12,
+    sinksRight  = TRUE,
+    iterations  = 32
+  )
+
+  # Override link fill to neutral grey (D3 defaults to source-node colour)
+  sn <- htmlwidgets::onRender(sn, '
+    function(el, x) {
+      setTimeout(function() {
+        d3.select(el).selectAll(".link")
+          .style("stroke",         "#b0b0b0")
+          .style("stroke-opacity", 0.45);
+      }, 150);
+    }
+  ')
+
+  # Export to PNG
+  tmp_html <- tempfile(fileext = ".html")
+  on.exit(unlink(tmp_html), add = TRUE)
+  htmlwidgets::saveWidget(sn, tmp_html, selfcontained = TRUE)
+  webshot2::webshot(tmp_html, file = output_png,
+                    vwidth = 960, vheight = 520, zoom = 2, delay = 0.5)
+
+  invisible(output_png)
 }
 
 # ── 7.  Panel D: DIABLO vs MetaPhlAn comparison ──────────────────────────────

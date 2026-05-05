@@ -52,7 +52,7 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
     # 1. Load 
     input_path = Path(input_csv)
     if not input_path.exists():
-        logger.error(f"File non trovato: {input_path}")
+        logger.error(f"File not found: {input_path}")
         sys.exit(1)
 
     df = pd.read_csv(input_path)
@@ -74,13 +74,13 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
     raw_names = df[target_col].astype(str).tolist()
 
     if abundance_col:
-        logger.info(f"Colonna abundance: '{abundance_col}'")
+        logger.info(f"Abundance column: '{abundance_col}'")
         abundances    = pd.to_numeric(df[abundance_col], errors="coerce").fillna(0.0).tolist()
         abundance_map = dict(zip(raw_names, abundances))
     else:
         abundance_map = {name: None for name in raw_names}
 
-    logger.info(f"Caricati {len(raw_names)} taxa dalla colonna '{target_col}'")
+    logger.info(f"Loaded {len(raw_names)} taxa from column '{target_col}'")
 
     #  2. Cleaning 
     _phase("1/4 — Cleaning")
@@ -125,7 +125,7 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
         }
         stats_path = debug_dir / "02_filtering_stats.json"
         stats_path.write_text(json.dumps(stats, indent=2))
-        logger.info(f"[DEBUG] Salvato: debug/02_filtering_stats.json")
+        logger.info(f"[DEBUG] Saved: debug/02_filtering_stats.json")
         logger.info(f"        Auto-accepted: {auto_accepted}/{total}  —  Rescue: {need_rescue} ({pct}%)")
         logger.info(f"        Breakdown: {breakdown}")
 
@@ -136,9 +136,9 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
     final_results = jaccard_results
 
     if not rescue_candidates:
-        _phase("3/4 — NCBI Rescue: SALTATO (tutti auto-accepted)")
+        _phase("3/4 — NCBI Rescue: SKIPPED (all auto-accepted)")
     else:
-        _phase(f"3/4 — NCBI Rescue ({len(rescue_candidates)} candidati)")
+        _phase(f"3/4 — NCBI Rescue ({len(rescue_candidates)} candidates)")
 
         rescued_items = run_ncbi_rescue(
             candidates=rescue_candidates,
@@ -152,7 +152,7 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
         _save(df_rescued, debug_dir / "03_rescue_process.csv", "debug/03_rescue_process.csv")
 
         if "final_band" in df_rescued.columns:
-            logger.info(f"        Esiti: {df_rescued['final_band'].value_counts().to_dict()}")
+            logger.info(f"        Outcomes: {df_rescued['final_band'].value_counts().to_dict()}")
 
     # 5. Assembly 
     _phase("4/4 — Assembly report")
@@ -162,7 +162,7 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
     report      = assemble_report(job_id, final_results)
     report_json = report.to_json()
     (results_dir / "mapping_report.json").write_text(report_json, encoding="utf-8")
-    logger.info(f"[RESULT] Salvato: results/mapping_report.json")
+    logger.info(f"[RESULT] Saved: results/mapping_report.json")
 
     # Summary 
     counts = {s.name: 0 for s in MappingStatus}
@@ -174,7 +174,7 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
 
     total_items = len(report.results)
     _banner("SUMMARY")
-    logger.info(f"  Totale: {total_items} taxa")
+    logger.info(f"  Total: {total_items} taxa")
     logger.info(f"  {'─'*40}")
     for name, count in counts.items():
         pct = count / total_items * 100 if total_items else 0.0
@@ -190,10 +190,13 @@ def run_pipeline(input_csv: str, output_base_dir: str, generate_report: bool = F
     print("=" * 60)
     print(report_json)
 
-    #  R plots (optional) 
+    #  Plots (optional)
     if generate_plots:
-        _banner("R PLOTS")
-        _run_r_plots(run_dir)
+        _banner("PLOTS")
+        from taxa_mapping.sankey_plot import generate_sankey
+        result = generate_sankey(run_dir)
+        if result:
+            logger.info(f"[PLOTS] Saved: {result.relative_to(run_dir)}")
 
     #  PDF report (optional) 
     if generate_report:
@@ -218,7 +221,7 @@ def _phase(text: str) -> None:
 
 def _save(df: pd.DataFrame, path: Path, label: str) -> None:
     df.to_csv(path, index=False)
-    logger.info(f"[DEBUG] Salvato: {label}  ({len(df)} righe, {len(df.columns)} col)")
+    logger.info(f"[DEBUG] Saved: {label}  ({len(df)} rows, {len(df.columns)} cols)")
 
 def _run_r_plots(run_dir: Path) -> None:
     import shutil
@@ -237,10 +240,10 @@ def _run_r_plots(run_dir: Path) -> None:
     )
     for line in result.stdout.splitlines():
         logger.info(f"[R] {line}")
+    for line in result.stderr.splitlines():
+        logger.info(f"[R] {line}")
     if result.returncode != 0:
         logger.warning(f"[PLOTS] R script exited with code {result.returncode}")
-        for line in result.stderr.splitlines():
-            logger.warning(f"[R] {line}")
     else:
         plots_dir = run_dir / "plots"
         pngs = sorted(plots_dir.glob("*.png")) if plots_dir.exists() else []
