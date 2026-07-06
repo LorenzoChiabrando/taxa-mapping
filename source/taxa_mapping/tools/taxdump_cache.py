@@ -100,3 +100,14 @@ def parse_names(names_path, capture: Set[str]):
         elif name_class == "authority":
             authority.setdefault(taxid, []).append(name)
     return sci_name, alt, authority
+
+
+def parse_merged(merged_path, in_scope: Set[str]) -> Dict[str, List[str]]:
+    merged: Dict[str, List[str]] = {}
+    for row in _dmp_rows(Path(merged_path)):
+        if len(row) < 2:
+            continue
+        old_id, new_id = row[0], row[1]
+        if old_id and new_id in in_scope:
+            merged.setdefault(new_id, []).append(old_id)
+    return merged
