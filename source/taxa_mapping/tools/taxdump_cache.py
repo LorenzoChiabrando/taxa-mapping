@@ -236,3 +236,38 @@ def resolve_taxdump(taxdump: Optional[str], work_dir: Optional[str]) -> Path:
     archive = work / "taxdump.tar.gz"
     _download(TAXDUMP_URL, archive)
     return _extract_tarball(archive, work)
+
+
+def generate(taxdump: Optional[str], output: str,
+             clades: Optional[Set[str]] = None, work_dir: Optional[str] = None) -> dict:
+    clade_roots = set(clades) if clades else set(DEFAULT_CLADES)
+    dmp_dir = resolve_taxdump(taxdump, work_dir)
+
+    nodes = parse_nodes(dmp_dir / "nodes.dmp")
+    in_scope = compute_in_scope(nodes, clade_roots)
+    capture = in_scope | ancestors_of_roots(nodes, clade_roots)
+    sci_name, alt, authority = parse_names(dmp_dir / "names.dmp", capture)
+    merged = parse_merged(dmp_dir / "merged.dmp", in_scope)
+
+    records = {
+        t: build_record(t, nodes, sci_name, alt, authority, merged)
+        for t in in_scope
+        if sci_name.get(t)
+    }
+    cache = build_cache(records)
+
+    out_path = Path(output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+
+    tax_keys = sum(1 for k in cache if k.startswith("TAX::"))
+    ids_keys = sum(1 for k in cache if k.startswith("IDS::"))
+    return {
+        "in_scope": len(in_scope),
+        "records": len(records),
+        "tax_keys": tax_keys,
+        "synonym_keys": tax_keys - len(records),
+        "ids_keys": ids_keys,
+        "output": str(out_path),
+        "bytes": out_path.stat().st_size,
+    }
