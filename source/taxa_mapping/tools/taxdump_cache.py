@@ -195,3 +195,44 @@ def build_cache(records: Dict[str, dict]) -> Dict[str, List[dict]]:
             cache[f"IDS::{','.join(ids)}"] = [rec]
 
     return cache
+
+
+_DMP_MEMBERS = ("nodes.dmp", "names.dmp", "merged.dmp")
+
+
+def _extract_tarball(archive: Path, work: Path) -> Path:
+    dest = work / "extracted"
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:gz") as tf:
+        for member in tf.getmembers():
+            base = Path(member.name).name
+            if base in _DMP_MEMBERS:
+                member.name = base  # flatten any leading path
+                tf.extract(member, dest)
+    return dest
+
+
+def _download(url: str, dest: Path) -> None:
+    import requests
+
+    with requests.get(url, stream=True, timeout=180) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                if chunk:
+                    fh.write(chunk)
+
+
+def resolve_taxdump(taxdump: Optional[str], work_dir: Optional[str]) -> Path:
+    work = Path(work_dir) if work_dir else Path.cwd() / ".taxdump_work"
+    if taxdump:
+        p = Path(taxdump)
+        if p.is_dir():
+            return p
+        if p.is_file() and p.name.endswith((".tar.gz", ".tgz")):
+            return _extract_tarball(p, work)
+        raise FileNotFoundError(f"taxdump path not found or unsupported: {taxdump}")
+    work.mkdir(parents=True, exist_ok=True)
+    archive = work / "taxdump.tar.gz"
+    _download(TAXDUMP_URL, archive)
+    return _extract_tarball(archive, work)
