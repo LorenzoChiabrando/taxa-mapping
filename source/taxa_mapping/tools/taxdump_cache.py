@@ -111,3 +111,55 @@ def parse_merged(merged_path, in_scope: Set[str]) -> Dict[str, List[str]]:
         if old_id and new_id in in_scope:
             merged.setdefault(new_id, []).append(old_id)
     return merged
+
+
+def build_lineage(taxid: str, nodes: Dict[str, Tuple[str, str]], sci_name: Dict[str, str]) -> List[dict]:
+    chain: List[dict] = []
+    cur = nodes.get(taxid, ("", ""))[0]  # start at parent
+    seen: Set[str] = set()
+    while cur and cur in nodes and cur != "1" and cur not in seen:
+        seen.add(cur)
+        parent, rank = nodes[cur]
+        chain.append({
+            "TaxId": cur,
+            "ScientificName": sci_name.get(cur, ""),
+            "Rank": rank,
+        })
+        if parent == cur:
+            break
+        cur = parent
+    chain.reverse()
+    return chain
+
+
+def build_record(taxid, nodes, sci_name, alt, authority, merged) -> dict:
+    parent, rank = nodes.get(taxid, ("", ""))
+    other: Dict[str, object] = {
+        "Synonym": [],
+        "GenbankSynonym": [],
+        "EquivalentName": [],
+        "Includes": [],
+        "Name": [],
+    }
+    for cls, names in (alt.get(taxid) or {}).items():
+        key = _OTHERNAMES_MAP.get(cls)
+        if key:
+            other[key] = list(names)
+    for auth in (authority.get(taxid) or []):
+        other["Name"].append({"ClassCDE": "authority", "DispName": auth})
+
+    lineage_ex = build_lineage(taxid, nodes, sci_name)
+    lineage_str = "; ".join(e["ScientificName"] for e in lineage_ex if e["ScientificName"])
+    merged_ids = sorted(set(merged.get(taxid, [])))
+
+    return {
+        "TaxId": taxid,
+        "ScientificName": sci_name.get(taxid, ""),
+        "ParentTaxId": parent,
+        "Rank": rank,
+        "OtherNames": other,
+        "Lineage": lineage_str,
+        "LineageEx": lineage_ex,
+        "AkaTaxIds": [],
+        "MergedTaxIds": merged_ids,
+    }
