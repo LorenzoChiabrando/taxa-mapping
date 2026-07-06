@@ -42,3 +42,44 @@ def parse_nodes(nodes_path) -> Dict[str, Tuple[str, str]]:
             continue
         nodes[row[0]] = (row[1], row[2])
     return nodes
+
+
+def compute_in_scope(nodes: Dict[str, Tuple[str, str]], clade_roots: Set[str]) -> Set[str]:
+    memo: Dict[str, bool] = {}
+
+    def in_scope(taxid: str) -> bool:
+        stack: List[str] = []
+        cur = taxid
+        result = False
+        while True:
+            if cur in memo:
+                result = memo[cur]
+                break
+            if cur in clade_roots:
+                result = True
+                break
+            parent = nodes.get(cur, (cur, ""))[0]
+            if not parent or parent == cur or parent not in nodes:
+                result = False
+                break
+            stack.append(cur)
+            cur = parent
+        for t in stack:
+            memo[t] = result
+        memo[taxid] = result
+        return result
+
+    return {t for t in nodes if in_scope(t)}
+
+
+def ancestors_of_roots(nodes: Dict[str, Tuple[str, str]], clade_roots: Set[str]) -> Set[str]:
+    extra: Set[str] = set()
+    for root in clade_roots:
+        cur = root
+        while cur in nodes:
+            parent = nodes[cur][0]
+            if not parent or parent == cur:
+                break
+            extra.add(parent)
+            cur = parent
+    return extra
