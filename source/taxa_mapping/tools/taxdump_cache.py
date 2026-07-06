@@ -163,3 +163,35 @@ def build_record(taxid, nodes, sci_name, alt, authority, merged) -> dict:
         "AkaTaxIds": [],
         "MergedTaxIds": merged_ids,
     }
+
+
+def build_cache(records: Dict[str, dict]) -> Dict[str, List[dict]]:
+    cache: Dict[str, List[dict]] = {}
+
+    # 1. scientific-name keys (highest priority)
+    for rec in records.values():
+        sci = rec.get("ScientificName")
+        if sci:
+            cache[f"TAX::{sci}"] = [rec]
+
+    # 2. synonym keys — only if the key is not already a scientific-name key
+    for rec in records.values():
+        other = rec.get("OtherNames", {})
+        alt_names: List[str] = []
+        for k in ("Synonym", "GenbankSynonym", "EquivalentName", "Includes"):
+            alt_names.extend(other.get(k, []))
+        for name in alt_names:
+            if not name:
+                continue
+            key = f"TAX::{name}"
+            if key not in cache:
+                cache[key] = [rec]
+
+    # 3. IDS:: keys for merged taxids (matches cache_fetch_by_taxids)
+    for rec in records.values():
+        merged = rec.get("MergedTaxIds") or []
+        ids = sorted({str(x).strip() for x in merged if str(x).strip()})
+        if ids:
+            cache[f"IDS::{','.join(ids)}"] = [rec]
+
+    return cache
