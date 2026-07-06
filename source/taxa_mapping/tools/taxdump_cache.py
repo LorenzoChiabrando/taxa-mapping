@@ -83,3 +83,20 @@ def ancestors_of_roots(nodes: Dict[str, Tuple[str, str]], clade_roots: Set[str])
             extra.add(parent)
             cur = parent
     return extra
+
+
+def parse_names(names_path, capture: Set[str]):
+    sci_name: Dict[str, str] = {}
+    alt: Dict[str, Dict[str, List[str]]] = {}
+    authority: Dict[str, List[str]] = {}
+    for row in _dmp_rows(Path(names_path)):
+        if len(row) < 4 or row[0] not in capture:
+            continue
+        taxid, name, name_class = row[0], row[1], row[3]
+        if name_class == "scientific name":
+            sci_name[taxid] = name
+        elif name_class in _ALT_CLASSES:
+            alt.setdefault(taxid, {}).setdefault(name_class, []).append(name)
+        elif name_class == "authority":
+            authority.setdefault(taxid, []).append(name)
+    return sci_name, alt, authority
