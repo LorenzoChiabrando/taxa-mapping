@@ -24,3 +24,21 @@ _OTHERNAMES_MAP = {
     "equivalent name": "EquivalentName",
     "includes": "Includes",
 }
+
+
+def _dmp_rows(path: Path):
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if line.endswith("\t|"):
+                line = line[:-2]
+            yield line.split("\t|\t")
+
+
+def parse_nodes(nodes_path) -> Dict[str, Tuple[str, str]]:
+    nodes: Dict[str, Tuple[str, str]] = {}
+    for row in _dmp_rows(Path(nodes_path)):
+        if len(row) < 3 or not row[0]:
+            continue
+        nodes[row[0]] = (row[1], row[2])
+    return nodes
