@@ -8,3 +8,4 @@ __pycache__/
 # Local Runs
 output/*
 !output/.gitkeep
+.taxdump_work/

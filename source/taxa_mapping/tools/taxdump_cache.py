@@ -206,7 +206,7 @@ def _extract_tarball(archive: Path, work: Path) -> Path:
     with tarfile.open(archive, "r:gz") as tf:
         for member in tf.getmembers():
             base = Path(member.name).name
-            if base in _DMP_MEMBERS:
+            if base in _DMP_MEMBERS and member.isfile():
                 member.name = base  # flatten any leading path
                 tf.extract(member, dest)
     return dest
@@ -251,22 +251,24 @@ def generate(taxdump: Optional[str], output: str,
 
     records = {
         t: build_record(t, nodes, sci_name, alt, authority, merged)
-        for t in in_scope
+        for t in sorted(in_scope)
         if sci_name.get(t)
     }
     cache = build_cache(records)
 
     out_path = Path(output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(cache, fh, ensure_ascii=False)
 
     tax_keys = sum(1 for k in cache if k.startswith("TAX::"))
     ids_keys = sum(1 for k in cache if k.startswith("IDS::"))
+    sci_keys = len({r["ScientificName"] for r in records.values() if r["ScientificName"]})
     return {
         "in_scope": len(in_scope),
         "records": len(records),
         "tax_keys": tax_keys,
-        "synonym_keys": tax_keys - len(records),
+        "synonym_keys": tax_keys - sci_keys,
         "ids_keys": ids_keys,
         "output": str(out_path),
         "bytes": out_path.stat().st_size,
