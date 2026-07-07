@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..core.name_normalization import normalize_species_key
+
 logger = logging.getLogger(__name__)
 
 _CANDIDATUS_RE = re.compile(r"^\s*Candidatus\s+", flags=re.IGNORECASE)
@@ -89,6 +91,11 @@ class NcbiRepository:
         for v in [name, stripped, san, cand, infra]:
             if v and v not in variants:
                 variants.append(v)
+
+        # clean-binomial variant, tried before the strain-token/genus fallbacks
+        binom = normalize_species_key(name)
+        if binom and binom not in variants:
+            variants.append(binom)
 
         token = _extract_strain_token(infra or cand or san or stripped or name)
         genus = (infra or cand or san or stripped or name).split()[0] if (infra or cand or san or stripped or name).split() else None

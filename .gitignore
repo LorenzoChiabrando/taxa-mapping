@@ -8,3 +8,14 @@ __pycache__/
 # Local Runs
 output/*
 !output/.gitkeep
+.taxdump_work/
+source/data/ncbi_cache_full.json
+source/data/ncbi_cache_full.zip
+
+# Local tooling
+.claude/
+.superpowers/
+.pytest_cache/
+
+# Scratch test inputs
+test_problematici/

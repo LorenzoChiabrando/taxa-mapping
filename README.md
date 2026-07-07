@@ -86,3 +86,23 @@ plots/                      # (--plots only)
 | `near_tier` | Plausible match with residual ambiguity. |
 | `low_similarity` | Weak match; manual review recommended. |
 | `no_correspondence` | No suitable AGORA model found. |
+
+---
+
+## Generating the NCBI taxonomy cache
+
+Build a Bacteria + Archaea taxonomy cache from the offline NCBI taxdump
+(fixes rescue "black" cases caused by stale taxonomy / renamed genera):
+
+    # download the taxdump automatically and write source/data/ncbi_cache_full.json
+    source/venv/bin/python source/scripts/build_ncbi_cache.py
+
+    # or use an already-downloaded taxdump (dir of .dmp files or taxdump.tar.gz)
+    source/venv/bin/python source/scripts/build_ncbi_cache.py --taxdump /path/to/taxdump.tar.gz
+
+To use the generated cache, point `NCBI_CACHE_PATH` in `source/taxa_mapping/config.py`
+at `data/ncbi_cache_full.json`. The original `ncbi_cache.json` is left untouched.
+
+Note: this covers organisms that exist in NCBI. It does not resolve non-NCBI
+placeholder IDs (e.g. `SGB…`/`GGB…` metagenomic bins), nor does it create missing
+AGORA models.
