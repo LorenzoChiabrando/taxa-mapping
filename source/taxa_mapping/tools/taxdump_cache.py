@@ -11,6 +11,8 @@ import tarfile
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from ..core.name_normalization import normalize_species_key
+
 TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 DEFAULT_CLADES: Set[str] = {"2", "2157"}  # Bacteria, Archaea
 
@@ -186,6 +188,23 @@ def build_cache(records: Dict[str, dict]) -> Dict[str, List[dict]]:
             key = f"TAX::{name}"
             if key not in cache:
                 cache[key] = [rec]
+
+    # 2b. clean-binomial alias keys for authored names — only if the key is not
+    #     already a scientific-name or synonym key (lowest taxid wins)
+    def _taxid_sort_key(rec):
+        t = str(rec.get("TaxId", ""))
+        return (0, int(t)) if t.isdigit() else (1, t)
+
+    for rec in sorted(records.values(), key=_taxid_sort_key):
+        sci = rec.get("ScientificName")
+        if not sci:
+            continue
+        clean = normalize_species_key(sci)
+        if not clean or clean == sci or len(clean.split()) < 2:
+            continue
+        key = f"TAX::{clean}"
+        if key not in cache:
+            cache[key] = [rec]
 
     # 3. IDS:: keys for merged taxids (matches cache_fetch_by_taxids)
     for rec in records.values():
